@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Environment, ContactShadows } from '@react-three/drei';
+import { OrbitControls, Environment, ContactShadows, RoundedBox } from '@react-three/drei';
 import * as THREE from 'three';
 import SensorGraph from './SensorGraph';
+import PhoneScreenUI from './PhoneScreenUI';
 
 const PhoneModel = ({ orientation }) => {
   const meshRef = useRef();
@@ -37,20 +38,24 @@ const PhoneModel = ({ orientation }) => {
 
   return (
     <group ref={meshRef}>
-      {/* Main body */}
-      <mesh receiveShadow castShadow>
-        <boxGeometry args={[3, 0.4, 6]} />
+      {/* Main body - Rounded */}
+      <RoundedBox args={[3, 0.4, 6]} radius={0.2} smoothness={8} receiveShadow castShadow>
         <meshStandardMaterial color="#1e293b" roughness={0.1} metalness={0.8} />
+      </RoundedBox>
+      
+      {/* Screen - Rounded with valid radius */}
+      <mesh position={[0, 0.11, 0]}>
+        <RoundedBox args={[2.8, 0.2, 5.8]} radius={0.1} smoothness={8}>
+          <meshStandardMaterial color="#000000" roughness={0.0} metalness={1.0} />
+        </RoundedBox>
       </mesh>
-      {/* Screen */}
-      <mesh position={[0, 0.21, 0]}>
-        <boxGeometry args={[2.8, 0.01, 5.8]} />
-        <meshStandardMaterial color="#000000" roughness={0.0} metalness={1.0} />
-      </mesh>
-      {/* Camera bump */}
+      {/* Virtual UI overlay */}
+      <PhoneScreenUI />
+      {/* Camera bump - Also slightly rounded */}
       <mesh position={[0.8, -0.21, -2.2]}>
-        <boxGeometry args={[1, 0.1, 1]} />
-        <meshStandardMaterial color="#334155" />
+        <RoundedBox args={[1, 0.1, 1]} radius={0.05} smoothness={4}>
+          <meshStandardMaterial color="#334155" />
+        </RoundedBox>
       </mesh>
     </group>
   );
@@ -117,36 +122,36 @@ const PcViewer = ({ onBack }) => {
 
         <div style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '1px' }}>Orientation</div>
         <div style={{ fontFamily: 'monospace', fontSize: '1.1rem' }}>
-          {orientation.quat ? (
-            <div style={{ fontSize: '0.9rem', color: '#3b82f6' }}>
+          α: {(orientation.alpha || 0).toFixed(0)}°<br />
+          β: {(orientation.beta || 0).toFixed(0)}°<br />
+          γ: {(orientation.gamma || 0).toFixed(0)}°
+          
+          {orientation.quat && (
+            <div style={{ fontSize: '0.9rem', color: '#3b82f6', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
               Precision Mode: ON<br />
               X: {orientation.quat.x.toFixed(2)}<br />
               Y: {orientation.quat.y.toFixed(2)}<br />
               Z: {orientation.quat.z.toFixed(2)}
             </div>
-          ) : (
-            <>
-              α: {(orientation.alpha || 0).toFixed(0)}°<br />
-              β: {(orientation.beta || 0).toFixed(0)}°<br />
-              γ: {(orientation.gamma || 0).toFixed(0)}°
-            </>
           )}
         </div>
       </div>
 
-      <Canvas camera={{ position: [0, 5, 8], fov: 50 }} shadows>
-        <color attach="background" args={['#0f172a']} />
+      <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 0 }}>
+        <Canvas camera={{ position: [0, 5, 8], fov: 50 }} shadows>
+          <color attach="background" args={['#0f172a']} />
 
-        <ambientLight intensity={0.5} />
-        <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={1} castShadow />
-        <pointLight position={[-10, -10, -10]} intensity={0.5} />
+          <ambientLight intensity={0.5} />
+          <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={1} castShadow />
+          <pointLight position={[-10, -10, -10]} intensity={0.5} />
 
-        <PhoneModel orientation={orientation} />
+          <PhoneModel orientation={orientation} />
 
-        <ContactShadows position={[0, -2, 0]} opacity={0.5} scale={20} blur={2} far={4} />
-        <OrbitControls makeDefault enableRotate={false} enableZoom={false} enablePan={false} />
-        <Environment preset="city" />
-      </Canvas>
+          <ContactShadows position={[0, -2, 0]} opacity={0.5} scale={20} blur={2} far={4} />
+          <OrbitControls makeDefault enableRotate={false} enableZoom={false} enablePan={false} />
+          <Environment preset="city" />
+        </Canvas>
+      </div>
     </div>
   );
 };

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { Environment } from '@react-three/drei';
+import { Environment, RoundedBox } from '@react-three/drei';
 import * as THREE from 'three';
+import PhoneScreenUI from './PhoneScreenUI';
 
 const LocalPhoneModel = ({ orientation, quatOverride }) => {
   const meshRef = useRef();
@@ -28,14 +29,15 @@ const LocalPhoneModel = ({ orientation, quatOverride }) => {
 
   return (
     <group ref={meshRef}>
-      <mesh receiveShadow castShadow>
-        <boxGeometry args={[3, 0.4, 6]} />
+      <RoundedBox args={[3, 0.4, 6]} radius={0.2} smoothness={8} receiveShadow castShadow>
         <meshStandardMaterial color="#3b82f6" roughness={0.1} metalness={0.8} />
+      </RoundedBox>
+      <mesh position={[0, 0.11, 0]}>
+        <RoundedBox args={[2.8, 0.2, 5.8]} radius={0.1} smoothness={8}>
+          <meshStandardMaterial color="#000000" roughness={0.0} metalness={1.0} />
+        </RoundedBox>
       </mesh>
-      <mesh position={[0, 0.21, 0]}>
-        <boxGeometry args={[2.8, 0.01, 5.8]} />
-        <meshStandardMaterial color="#000000" roughness={0.0} metalness={1.0} />
-      </mesh>
+      <PhoneScreenUI />
     </group>
   );
 };
@@ -217,15 +219,32 @@ const PhoneController = ({ onBack }) => {
             // sensor.quaternion = [x, y, z, w]
             const [sx, sy, sz, sw] = sensor.quaternion;
             const quatPayload = { x: sx, y: sy, z: sz, w: sw };
+            
+            // Calculate Euler angles for the UI readout
+            const tempQuat = new THREE.Quaternion(sx, sy, sz, sw);
+            const tempEuler = new THREE.Euler().setFromQuaternion(tempQuat, 'YXZ');
+            const a = THREE.MathUtils.radToDeg(tempEuler.y);
+            const b = THREE.MathUtils.radToDeg(tempEuler.x);
+            const g = THREE.MathUtils.radToDeg(tempEuler.z);
+
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
               wsRef.current.send(JSON.stringify({
                 quat: quatPayload,
+                alpha: a,
+                beta: b,
+                gamma: g,
                 deviceId: deviceId.current
               }));
             }
-            // Update local preview using same quat so phone & PC previews match
+            
+            // Update local preview and readouts
             setQuat(quatPayload);
-            setData(prev => ({ ...prev, raw: 'Precision Mode Active' }));
+            setData({
+              alpha: a,
+              beta: b,
+              gamma: g,
+              raw: 'Precision Mode: Quaternion + Euler'
+            });
           });
           sensor.start();
           setStatus('Precision Mode: Active');
