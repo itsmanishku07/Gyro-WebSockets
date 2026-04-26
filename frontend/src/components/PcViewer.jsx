@@ -5,6 +5,61 @@ import * as THREE from 'three';
 import SensorGraph from './SensorGraph';
 import PhoneScreenUI from './PhoneScreenUI';
 
+const PrimitiveModel = ({ orientation, type }) => {
+  const meshRef = useRef();
+  useFrame((state, delta) => {
+    if (!meshRef.current || !orientation) return;
+    const q = orientation.quat ? new THREE.Quaternion(orientation.quat.x, orientation.quat.z, -orientation.quat.y, orientation.quat.w) : 
+              new THREE.Quaternion().setFromEuler(new THREE.Euler(THREE.MathUtils.degToRad(orientation.beta || 0), -THREE.MathUtils.degToRad(orientation.alpha || 0), -THREE.MathUtils.degToRad(orientation.gamma || 0), 'YXZ'));
+    meshRef.current.quaternion.slerp(q, 15 * delta);
+  });
+
+  const renderShape = () => {
+    switch(type) {
+      case 'dna': return (
+        <group>
+          {[...Array(12)].map((_, i) => (
+            <group key={i} position={[0, (i - 6) * 0.5, 0]} rotation={[0, i * 0.5, 0]}>
+              <mesh position={[1.2, 0, 0]}><sphereGeometry args={[0.2]} /><meshStandardMaterial color="#ef4444" /></mesh>
+              <mesh position={[-1.2, 0, 0]}><sphereGeometry args={[0.2]} /><meshStandardMaterial color="#3b82f6" /></mesh>
+              <mesh rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.05, 0.05, 2.4]} /><meshStandardMaterial color="#94a3b8" /></mesh>
+            </group>
+          ))}
+        </group>
+      );
+      case 'atom': return (
+        <group>
+          <mesh><sphereGeometry args={[0.6]} /><meshStandardMaterial color="#ef4444" /></mesh>
+          <mesh rotation={[Math.PI / 4, 0, 0]}><torusGeometry args={[2, 0.05, 16, 100]} /><meshStandardMaterial color="#3b82f6" /></mesh>
+          <mesh rotation={[-Math.PI / 4, 0, 0]}><torusGeometry args={[2, 0.05, 16, 100]} /><meshStandardMaterial color="#22c55e" /></mesh>
+          <mesh rotation={[0, Math.PI / 2, 0]}><torusGeometry args={[2, 0.05, 16, 100]} /><meshStandardMaterial color="#f59e0b" /></mesh>
+        </group>
+      );
+      case 'hourglass': return (
+        <group>
+          <mesh position={[0, 1.5, 0]} rotation={[Math.PI, 0, 0]}><coneGeometry args={[1.5, 3, 32]} /><meshStandardMaterial color="#fcd34d" transparent opacity={0.6} /></mesh>
+          <mesh position={[0, -1.5, 0]}><coneGeometry args={[1.5, 3, 32]} /><meshStandardMaterial color="#fcd34d" transparent opacity={0.6} /></mesh>
+        </group>
+      );
+      default: return null;
+    }
+  };
+
+  const shape = renderShape();
+  if (!shape) return null;
+
+  return (
+    <group ref={meshRef}>
+      {shape.type === 'group' ? shape : (
+        <mesh castShadow receiveShadow>
+          {shape}
+          <meshStandardMaterial color="#ffffff" roughness={0.2} metalness={0.7} />
+        </mesh>
+      )}
+    </group>
+  );
+};
+
 const PhoneModel = ({ orientation }) => {
   const meshRef = useRef();
   const targetEuler = useRef(new THREE.Euler(0, 0, 0, 'YXZ'));
@@ -14,22 +69,13 @@ const PhoneModel = ({ orientation }) => {
     if (!meshRef.current || !orientation) return;
 
     if (orientation.quat) {
-      // 100% Accurate Hardware Sync with Axis Correction
       const q = orientation.quat;
-      // Map hardware (ENZ: East-North-Up) to Three.js world (Right-Up-Backward)
-      // ENZ: X=East, Y=North, Z=Up
-      // ThreeJS: X=Right, Y=Up, Z=Backward (South)
-      // So Three.js X = ENZ X, Three.js Y = ENZ Z, Three.js Z = -ENZ Y
       targetQuaternion.current.set(q.x, q.z, -q.y, q.w);
-
       meshRef.current.quaternion.slerp(targetQuaternion.current, 15 * delta);
     } else {
-      // Smooth Euler Fallback
       const alpha = THREE.MathUtils.degToRad(orientation.alpha || 0);
       const beta = THREE.MathUtils.degToRad(orientation.beta || 0);
       const gamma = THREE.MathUtils.degToRad(orientation.gamma || 0);
-
-      // X: pitch (beta), Y: heading (alpha), Z: roll (gamma)
       targetEuler.current.set(beta, -alpha, -gamma, 'YXZ');
       targetQuaternion.current.setFromEuler(targetEuler.current);
       meshRef.current.quaternion.slerp(targetQuaternion.current, 15 * delta);
@@ -49,11 +95,10 @@ const PhoneModel = ({ orientation }) => {
           <meshStandardMaterial color="#000000" roughness={0.0} metalness={1.0} />
         </RoundedBox>
       </mesh>
-      {/* Virtual UI overlay */}
       <PhoneScreenUI />
       {/* Camera bump - Also slightly rounded */}
       <mesh position={[0.8, -0.21, -2.2]}>
-        <RoundedBox args={[1, 0.1, 1]} radius={0.05} smoothness={4}>
+        <RoundedBox args={[1, 0.1, 1]} radius={0.05} smoothness={8}>
           <meshStandardMaterial color="#334155" />
         </RoundedBox>
       </mesh>
@@ -63,8 +108,16 @@ const PhoneModel = ({ orientation }) => {
 
 const PcViewer = ({ onBack }) => {
   const [status, setStatus] = useState('Connecting...');
+  const [selectedModel, setSelectedModel] = useState('phone');
   const [orientation, setOrientation] = useState({ alpha: 0, beta: 0, gamma: 0 });
   const lockedDeviceId = useRef(null);
+  
+  const models = [
+    { id: 'phone', name: 'Smartphone' },
+    { id: 'dna', name: 'DNA Helix' },
+    { id: 'atom', name: 'Atom Structure' },
+    { id: 'hourglass', name: 'Time Glass' },
+  ];
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -77,6 +130,12 @@ const PcViewer = ({ onBack }) => {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+
+        // Handle model change requests from the phone
+        if (data.type === 'model_change') {
+          setSelectedModel(data.modelId);
+          return;
+        }
 
         // Auto-lock onto the first device, but allow re-locking if the old device stops sending
         const now = Date.now();
@@ -145,7 +204,11 @@ const PcViewer = ({ onBack }) => {
           <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={1} castShadow />
           <pointLight position={[-10, -10, -10]} intensity={0.5} />
 
-          <PhoneModel orientation={orientation} />
+          {selectedModel === 'phone' ? (
+            <PhoneModel orientation={orientation} />
+          ) : (
+            <PrimitiveModel orientation={orientation} type={selectedModel} />
+          )}
 
           <ContactShadows position={[0, -2, 0]} opacity={0.5} scale={20} blur={2} far={4} />
           <OrbitControls makeDefault enableRotate={false} enableZoom={false} enablePan={false} />

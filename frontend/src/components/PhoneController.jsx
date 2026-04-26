@@ -4,28 +4,71 @@ import { Environment, RoundedBox } from '@react-three/drei';
 import * as THREE from 'three';
 import PhoneScreenUI from './PhoneScreenUI';
 
-const LocalPhoneModel = ({ orientation, quatOverride }) => {
+const LocalPhoneModel = ({ orientation, quatOverride, selectedModel }) => {
   const meshRef = useRef();
   const targetQ = useRef(new THREE.Quaternion());
 
   useFrame((state, delta) => {
     if (!meshRef.current) return;
-
     if (quatOverride) {
-      // Mirror exactly what PcViewer does for quaternion path
       const q = quatOverride;
       targetQ.current.set(q.x, q.z, -q.y, q.w);
     } else if (orientation) {
-      // Mirror exactly what PcViewer does for Euler path
       const alpha = THREE.MathUtils.degToRad(orientation.alpha || 0);
       const beta  = THREE.MathUtils.degToRad(orientation.beta  || 0);
       const gamma = THREE.MathUtils.degToRad(orientation.gamma || 0);
       const euler = new THREE.Euler(beta, -alpha, -gamma, 'YXZ');
       targetQ.current.setFromEuler(euler);
     }
-
     meshRef.current.quaternion.slerp(targetQ.current, 15 * delta);
   });
+
+  const renderShape = () => {
+    switch(selectedModel) {
+      case 'dna': return (
+        <group>
+          {[...Array(12)].map((_, i) => (
+            <group key={i} position={[0, (i - 6) * 0.5, 0]} rotation={[0, i * 0.5, 0]}>
+              <mesh position={[1.2, 0, 0]}><sphereGeometry args={[0.2]} /><meshStandardMaterial color="#ef4444" /></mesh>
+              <mesh position={[-1.2, 0, 0]}><sphereGeometry args={[0.2]} /><meshStandardMaterial color="#3b82f6" /></mesh>
+              <mesh rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.05, 0.05, 2.4]} /><meshStandardMaterial color="#94a3b8" /></mesh>
+            </group>
+          ))}
+        </group>
+      );
+      case 'atom': return (
+        <group>
+          <mesh><sphereGeometry args={[0.6]} /><meshStandardMaterial color="#ef4444" /></mesh>
+          <mesh rotation={[Math.PI / 4, 0, 0]}><torusGeometry args={[2, 0.05, 16, 100]} /><meshStandardMaterial color="#3b82f6" /></mesh>
+          <mesh rotation={[-Math.PI / 4, 0, 0]}><torusGeometry args={[2, 0.05, 16, 100]} /><meshStandardMaterial color="#22c55e" /></mesh>
+          <mesh rotation={[0, Math.PI / 2, 0]}><torusGeometry args={[2, 0.05, 16, 100]} /><meshStandardMaterial color="#f59e0b" /></mesh>
+        </group>
+      );
+      case 'hourglass': return (
+        <group>
+          <mesh position={[0, 1.5, 0]} rotation={[Math.PI, 0, 0]}><coneGeometry args={[1.5, 3, 32]} /><meshStandardMaterial color="#fcd34d" transparent opacity={0.6} /></mesh>
+          <mesh position={[0, -1.5, 0]}><coneGeometry args={[1.5, 3, 32]} /><meshStandardMaterial color="#fcd34d" transparent opacity={0.6} /></mesh>
+        </group>
+      );
+      default: return null;
+    }
+  };
+
+  const color = '#ffffff';
+
+  if (selectedModel !== 'phone') {
+    const shape = renderShape();
+    return (
+      <group ref={meshRef}>
+        {shape.type === 'group' ? shape : (
+          <mesh castShadow receiveShadow>
+            {shape}
+            <meshStandardMaterial color={color} roughness={0.2} metalness={0.7} />
+          </mesh>
+        )}
+      </group>
+    );
+  }
 
   return (
     <group ref={meshRef}>
@@ -45,13 +88,15 @@ const LocalPhoneModel = ({ orientation, quatOverride }) => {
 const PhoneController = ({ onBack }) => {
   const [status, setStatus] = useState('Idle');
   const [data, setData] = useState({ alpha: 0, beta: 0, gamma: 0 });
-  const [quat, setQuat] = useState(null); // for AbsoluteOrientationSensor path
+  const [quat, setQuat] = useState(null);
+  const [selectedModel, setSelectedModel] = useState('phone');
+  const [isTracking, setIsTracking] = useState(false);
   const [offsets, setOffsets] = useState({ alpha: 0, beta: 0, gamma: 0 });
+  const [enabledAxes, setEnabledAxes] = useState({ alpha: true, beta: true, gamma: true });
   const wsRef = useRef(null);
   const lastSendTime = useRef(0);
   const smoothedData = useRef({ alpha: 0, beta: 0, gamma: 0, init: false });
   const rawData = useRef({ alpha: 0, beta: 0, gamma: 0 });
-  const [enabledAxes, setEnabledAxes] = useState({ alpha: true, beta: true, gamma: true });
 
   // Shortest path angle interpolation to prevent 360-degree jumps
   const lerpAngle = (start, end, amount) => {
@@ -171,6 +216,18 @@ const PhoneController = ({ onBack }) => {
     }
   };
 
+  const changeModel = (modelId) => {
+    setSelectedModel(modelId);
+    if ('vibrate' in navigator) navigator.vibrate(50); // Haptic feedback
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ 
+        type: 'model_change', 
+        modelId, 
+        deviceId: deviceId.current 
+      }));
+    }
+  };
+
   const calibrationQuat = useRef(new THREE.Quaternion());
 
   const calibrate = () => {
@@ -192,7 +249,6 @@ const PhoneController = ({ onBack }) => {
     setStatus('Calibration: Current position is now 0°');
   };
 
-  const [isTracking, setIsTracking] = useState(false);
   const sensorRef = useRef(null);
 
   const stopSensors = () => {
@@ -333,7 +389,7 @@ const PhoneController = ({ onBack }) => {
           <color attach="background" args={['#1e293b']} />
           <ambientLight intensity={0.5} />
           <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={1} />
-          <LocalPhoneModel orientation={quat ? null : data} quatOverride={quat} />
+          <LocalPhoneModel orientation={quat ? null : data} quatOverride={quat} selectedModel={selectedModel} />
           <Environment preset="city" />
         </Canvas>
       </div>
@@ -343,6 +399,39 @@ const PhoneController = ({ onBack }) => {
           Diagnostic: {data.raw}
         </div>
       )}
+
+      {/* Real-time Model Selector UI */}
+      <div style={{ marginTop: '2rem', width: '100%' }}>
+        <h3 style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '1rem', textTransform: 'uppercase' }}>Select Virtual Object</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+          {[
+            { id: 'phone', name: 'Smartphone' },
+            { id: 'dna', name: 'DNA Helix' },
+            { id: 'atom', name: 'Atom Structure' },
+            { id: 'hourglass', name: 'Time Glass' },
+          ].map(m => (
+            <button 
+              key={m.id}
+              onClick={() => changeModel(m.id)}
+              style={{
+                padding: '15px',
+                borderRadius: '12px',
+                border: selectedModel === m.id ? '2px solid #3b82f6' : '1px solid rgba(255,255,255,0.1)',
+                background: selectedModel === m.id ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.05)',
+                color: 'white',
+                cursor: 'pointer',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '5px',
+                transition: 'all 0.2s'
+              }}
+            >
+              <span style={{ fontSize: '0.9rem', fontWeight: '600' }}>{m.name}</span>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 };
