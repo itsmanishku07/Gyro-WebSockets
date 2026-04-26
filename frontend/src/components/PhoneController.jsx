@@ -85,7 +85,7 @@ const LocalPhoneModel = ({ orientation, quatOverride, selectedModel }) => {
   );
 };
 
-const PhoneController = ({ onBack }) => {
+const PhoneController = ({ roomCode, onBack }) => {
   const [status, setStatus] = useState('Idle');
   const [data, setData] = useState({ alpha: 0, beta: 0, gamma: 0 });
   const [quat, setQuat] = useState(null);
@@ -108,7 +108,7 @@ const PhoneController = ({ onBack }) => {
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/${roomCode}`);
 
     ws.onopen = () => {
       setStatus('Connected to Server');

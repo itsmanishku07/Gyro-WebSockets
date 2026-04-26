@@ -106,7 +106,7 @@ const PhoneModel = ({ orientation }) => {
   );
 };
 
-const PcViewer = ({ onBack }) => {
+const PcViewer = ({ roomCode, onBack }) => {
   const [status, setStatus] = useState('Connecting...');
   const [selectedModel, setSelectedModel] = useState('phone');
   const [orientation, setOrientation] = useState({ alpha: 0, beta: 0, gamma: 0 });
@@ -118,10 +118,11 @@ const PcViewer = ({ onBack }) => {
     { id: 'atom', name: 'Atom Structure' },
     { id: 'hourglass', name: 'Time Glass' },
   ];
+  const lastMessageTime = useRef(0);
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/${roomCode}`);
 
     ws.onopen = () => {
       setStatus('Connected. Waiting for phone data...');
@@ -152,8 +153,6 @@ const PcViewer = ({ onBack }) => {
         console.error("Failed to parse WS data", e);
       }
     };
-
-    const lastMessageTime = { current: 0 };
 
     ws.onclose = () => {
       setStatus('Disconnected');

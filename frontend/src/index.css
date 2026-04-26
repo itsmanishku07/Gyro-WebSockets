@@ -199,6 +199,47 @@ h1 {
   max-width: 300px;
 }
 
+.room-form {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 350px;
+  background: rgba(30, 41, 59, 0.4);
+  padding: 2rem;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px);
+}
+
+.room-input {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1.2rem;
+  font-size: 1.5rem;
+  color: white;
+  text-align: center;
+  font-family: monospace;
+  letter-spacing: 0.5rem;
+  font-weight: 700;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.room-input:focus {
+  border-color: #3b82f6;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+}
+
+.room-input::placeholder {
+  letter-spacing: normal;
+  font-size: 1rem;
+  font-family: inherit;
+  font-weight: 400;
+  opacity: 0.5;
+}
+
 @media (max-width: 768px) {
   .pc-overlay {
     top: auto;
