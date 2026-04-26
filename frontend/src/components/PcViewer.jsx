@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Environment, ContactShadows, RoundedBox } from '@react-three/drei';
+import { OrbitControls, Environment, ContactShadows, RoundedBox, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import SensorGraph from './SensorGraph';
 import PhoneScreenUI from './PhoneScreenUI';
 
-const PrimitiveModel = ({ orientation, type }) => {
+const PrimitiveModel = ({ deviceId, devicesRef, type }) => {
   const meshRef = useRef();
   useFrame((state, delta) => {
+    const orientation = devicesRef.current[deviceId];
     if (!meshRef.current || !orientation) return;
     const q = orientation.quat ? new THREE.Quaternion(orientation.quat.x, orientation.quat.z, -orientation.quat.y, orientation.quat.w) : 
               new THREE.Quaternion().setFromEuler(new THREE.Euler(THREE.MathUtils.degToRad(orientation.beta || 0), -THREE.MathUtils.degToRad(orientation.alpha || 0), -THREE.MathUtils.degToRad(orientation.gamma || 0), 'YXZ'));
-    meshRef.current.quaternion.slerp(q, 15 * delta);
+    meshRef.current.quaternion.slerp(q, 25 * delta); // Increased slerp speed
   });
 
   const renderShape = () => {
@@ -60,43 +61,37 @@ const PrimitiveModel = ({ orientation, type }) => {
   );
 };
 
-const PhoneModel = ({ orientation }) => {
+const PhoneModel = ({ deviceId, devicesRef }) => {
   const meshRef = useRef();
-  const targetEuler = useRef(new THREE.Euler(0, 0, 0, 'YXZ'));
   const targetQuaternion = useRef(new THREE.Quaternion());
 
   useFrame((state, delta) => {
+    const orientation = devicesRef.current[deviceId];
     if (!meshRef.current || !orientation) return;
 
     if (orientation.quat) {
       const q = orientation.quat;
       targetQuaternion.current.set(q.x, q.z, -q.y, q.w);
-      meshRef.current.quaternion.slerp(targetQuaternion.current, 15 * delta);
     } else {
       const alpha = THREE.MathUtils.degToRad(orientation.alpha || 0);
       const beta = THREE.MathUtils.degToRad(orientation.beta || 0);
       const gamma = THREE.MathUtils.degToRad(orientation.gamma || 0);
-      targetEuler.current.set(beta, -alpha, -gamma, 'YXZ');
-      targetQuaternion.current.setFromEuler(targetEuler.current);
-      meshRef.current.quaternion.slerp(targetQuaternion.current, 15 * delta);
+      targetQuaternion.current.setFromEuler(new THREE.Euler(beta, -alpha, -gamma, 'YXZ'));
     }
+    meshRef.current.quaternion.slerp(targetQuaternion.current, 25 * delta); // Increased slerp speed
   });
 
   return (
     <group ref={meshRef}>
-      {/* Main body - Rounded */}
       <RoundedBox args={[3, 0.4, 6]} radius={0.2} smoothness={8} receiveShadow castShadow>
         <meshStandardMaterial color="#1e293b" roughness={0.1} metalness={0.8} />
       </RoundedBox>
-      
-      {/* Screen - Rounded with valid radius */}
       <mesh position={[0, 0.11, 0]}>
         <RoundedBox args={[2.8, 0.2, 5.8]} radius={0.1} smoothness={8}>
           <meshStandardMaterial color="#000000" roughness={0.0} metalness={1.0} />
         </RoundedBox>
       </mesh>
       <PhoneScreenUI />
-      {/* Camera bump - Also slightly rounded */}
       <mesh position={[0.8, -0.21, -2.2]}>
         <RoundedBox args={[1, 0.1, 1]} radius={0.05} smoothness={8}>
           <meshStandardMaterial color="#334155" />
@@ -108,109 +103,128 @@ const PhoneModel = ({ orientation }) => {
 
 const PcViewer = ({ roomCode, onBack }) => {
   const [status, setStatus] = useState('Connecting...');
-  const [selectedModel, setSelectedModel] = useState('phone');
-  const [orientation, setOrientation] = useState({ alpha: 0, beta: 0, gamma: 0 });
-  const lockedDeviceId = useRef(null);
+  const [deviceIds, setDeviceIds] = useState([]);
+  const [uiOrientation, setUiOrientation] = useState({ alpha: 0, beta: 0, gamma: 0 });
+  const devicesRef = useRef({});
+  const lastActiveDevice = useRef(null);
   
-  const models = [
-    { id: 'phone', name: 'Smartphone' },
-    { id: 'dna', name: 'DNA Helix' },
-    { id: 'atom', name: 'Atom Structure' },
-    { id: 'hourglass', name: 'Time Glass' },
-  ];
-  const lastMessageTime = useRef(0);
-
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws/${roomCode}`);
 
-    ws.onopen = () => {
-      setStatus('Connected. Waiting for phone data...');
-    };
+    ws.onopen = () => setStatus('Connected. Waiting for data...');
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-
-        // Handle model change requests from the phone
-        if (data.type === 'model_change') {
-          setSelectedModel(data.modelId);
-          return;
-        }
-
-        // Auto-lock onto the first device, but allow re-locking if the old device stops sending
         const now = Date.now();
-        if (!lockedDeviceId.current || (now - lastMessageTime.current > 2000)) {
-          lockedDeviceId.current = data.deviceId;
-        }
 
-        if (data.deviceId === lockedDeviceId.current) {
-          setOrientation(data);
-          setStatus(`Live Sync Active`);
-          lastMessageTime.current = now;
+        if (data.deviceId) {
+          const isNew = !devicesRef.current[data.deviceId];
+          
+          devicesRef.current[data.deviceId] = {
+            ...devicesRef.current[data.deviceId],
+            ...data,
+            lastSeen: now,
+            modelId: data.type === 'model_change' ? data.modelId : (data.modelId || devicesRef.current[data.deviceId]?.modelId || 'phone')
+          };
+          
+          lastActiveDevice.current = data.deviceId;
+          if (status !== 'Live Sync Active') setStatus('Live Sync Active');
+          
+          if (isNew) {
+            setDeviceIds(Object.keys(devicesRef.current));
+          }
         }
       } catch (e) {
         console.error("Failed to parse WS data", e);
       }
     };
 
-    ws.onclose = () => {
-      setStatus('Disconnected');
-    };
-
-    ws.onerror = () => {
-      setStatus('Connection Error');
-    };
+    ws.onclose = () => setStatus('Disconnected');
+    ws.onerror = () => setStatus('Connection Error');
 
     return () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close();
-      }
+      if (ws.readyState === WebSocket.OPEN) ws.close();
     };
+  }, [roomCode, status]);
+
+  // Throttled UI Updates (10Hz) and Cleanup
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      
+      // Cleanup
+      let changed = false;
+      const currentIds = Object.keys(devicesRef.current);
+      currentIds.forEach(id => {
+        if (now - devicesRef.current[id].lastSeen > 5000) {
+          delete devicesRef.current[id];
+          changed = true;
+        }
+      });
+      if (changed) setDeviceIds(Object.keys(devicesRef.current));
+
+      // UI Update
+      if (lastActiveDevice.current && devicesRef.current[lastActiveDevice.current]) {
+        setUiOrientation({ ...devicesRef.current[lastActiveDevice.current] });
+      }
+    }, 100);
+    return () => clearInterval(interval);
   }, []);
 
   return (
     <div className="viewer-container">
-      <button className="btn back-btn" onClick={onBack} style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 20 }}>← Back</button>
-      <SensorGraph data={orientation} />
+      <button className="btn back-btn" onClick={onBack}>← Back</button>
+      <SensorGraph data={uiOrientation} />
 
-      <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 10, background: 'rgba(30,41,59,0.8)', backdropFilter: 'blur(10px)', padding: '15px', borderRadius: '12px', color: 'white', textAlign: 'left', border: '1px solid rgba(255,255,255,0.1)' }}>
-        <div style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '1px' }}>Status</div>
+      <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 10, background: 'rgba(30,41,59,0.8)', backdropFilter: 'blur(10px)', padding: '15px', borderRadius: '12px', color: 'white', border: '1px solid rgba(255,255,255,0.1)', minWidth: '200px' }}>
+        <div style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '5px', textTransform: 'uppercase' }}>Status</div>
         <div style={{ marginBottom: '10px', color: status.includes('Error') ? '#ef4444' : '#22c55e' }}>{status}</div>
-
-        <div style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '1px' }}>Orientation</div>
-        <div style={{ fontFamily: 'monospace', fontSize: '1.1rem' }}>
-          α: {(orientation.alpha || 0).toFixed(0)}°<br />
-          β: {(orientation.beta || 0).toFixed(0)}°<br />
-          γ: {(orientation.gamma || 0).toFixed(0)}°
-          
-          {orientation.quat && (
-            <div style={{ fontSize: '0.9rem', color: '#3b82f6', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-              Precision Mode: ON<br />
-              X: {orientation.quat.x.toFixed(2)}<br />
-              Y: {orientation.quat.y.toFixed(2)}<br />
-              Z: {orientation.quat.z.toFixed(2)}
+        <div style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '5px', textTransform: 'uppercase' }}>Devices: {deviceIds.length}</div>
+        
+        {deviceIds.length > 0 && (
+          <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+            <div style={{ color: '#3b82f6', fontSize: '0.7rem', marginBottom: '5px' }}>ACTIVE: {lastActiveDevice.current?.substring(0, 4)}</div>
+            <div style={{ fontFamily: 'monospace', fontSize: '1.1rem' }}>
+              α: {uiOrientation.alpha.toFixed(0)}°<br />
+              β: {uiOrientation.beta.toFixed(0)}°<br />
+              γ: {uiOrientation.gamma.toFixed(0)}°
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 0 }}>
-        <Canvas camera={{ position: [0, 5, 8], fov: 50 }} shadows>
+        <Canvas camera={{ position: [0, 5, 12], fov: 50 }} shadows>
           <color attach="background" args={['#0f172a']} />
-
           <ambientLight intensity={0.5} />
           <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={1} castShadow />
           <pointLight position={[-10, -10, -10]} intensity={0.5} />
 
-          {selectedModel === 'phone' ? (
-            <PhoneModel orientation={orientation} />
-          ) : (
-            <PrimitiveModel orientation={orientation} type={selectedModel} />
-          )}
+          {deviceIds.map((id, index) => {
+            const dev = devicesRef.current[id];
+            if (!dev) return null;
+            const xPos = (index - (deviceIds.length - 1) / 2) * 5;
+            
+            return (
+              <group key={id} position={[xPos, 0, 0]}>
+                {dev.modelId === 'phone' ? (
+                  <PhoneModel deviceId={id} devicesRef={devicesRef} />
+                ) : (
+                  <PrimitiveModel deviceId={id} devicesRef={devicesRef} type={dev.modelId} />
+                )}
+                <Html position={[0, 4, 0]} center>
+                  <div style={{ background: 'rgba(0,0,0,0.5)', padding: '4px 8px', borderRadius: '4px', color: 'white', fontSize: '10px', pointerEvents: 'none' }}>
+                    {id.substring(0, 4)}
+                  </div>
+                </Html>
+              </group>
+            );
+          })}
 
-          <ContactShadows position={[0, -2, 0]} opacity={0.5} scale={20} blur={2} far={4} />
-          <OrbitControls makeDefault enableRotate={false} enableZoom={false} enablePan={false} />
+          <ContactShadows position={[0, -2, 0]} opacity={0.5} scale={30} blur={2} far={4} />
+          <OrbitControls makeDefault />
           <Environment preset="city" />
         </Canvas>
       </div>
