@@ -1,0 +1,2 @@
+rootProject.name = "GyroSync"
+include ':app'
