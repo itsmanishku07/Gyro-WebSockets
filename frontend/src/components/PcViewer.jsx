@@ -10,26 +10,28 @@ const PhoneModel = ({ orientation }) => {
   const targetQuaternion = useRef(new THREE.Quaternion());
 
   useFrame((state, delta) => {
-    if (meshRef.current && orientation) {
-      if (orientation.quat) {
-        const q = orientation.quat;
-        targetQuaternion.current.set(q.x, q.y, q.z, q.w);
-        
-        // Correct Phone-to-World mapping
-        const worldCorrection = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
-        targetQuaternion.current.multiplyQuaternions(worldCorrection, targetQuaternion.current);
-        
-        meshRef.current.quaternion.slerp(targetQuaternion.current, 12 * delta);
-      } else {
-        const alpha = THREE.MathUtils.degToRad(orientation.alpha || 0);
-        const beta = THREE.MathUtils.degToRad(orientation.beta || 0);
-        const gamma = THREE.MathUtils.degToRad(orientation.gamma || 0);
-        
-        // Correct Euler mapping for Web Sensors
-        targetEuler.current.set(beta, alpha, -gamma, 'YXZ');
-        targetQuaternion.current.setFromEuler(targetEuler.current);
-        meshRef.current.quaternion.slerp(targetQuaternion.current, 12 * delta); 
-      }
+    if (!meshRef.current || !orientation) return;
+
+    if (orientation.quat) {
+      // 100% Accurate Hardware Sync with Axis Correction
+      const q = orientation.quat;
+      // Map hardware to Three.js world - Swapping Y and Z for correct phone orientation
+      targetQuaternion.current.set(q.x, q.z, -q.y, q.w);
+      
+      const worldCorrection = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+      targetQuaternion.current.premultiply(worldCorrection);
+      
+      meshRef.current.quaternion.slerp(targetQuaternion.current, 15 * delta);
+    } else {
+      // Smooth Euler Fallback with Swapped Axes
+      const alpha = THREE.MathUtils.degToRad(orientation.alpha || 0);
+      const beta = THREE.MathUtils.degToRad(orientation.beta || 0);
+      const gamma = THREE.MathUtils.degToRad(orientation.gamma || 0);
+      
+      // Using gamma for turning and alpha for rolling to match physical phone axes
+      targetEuler.current.set(beta, -gamma, -alpha, 'YXZ');
+      targetQuaternion.current.setFromEuler(targetEuler.current);
+      meshRef.current.quaternion.slerp(targetQuaternion.current, 15 * delta);
     }
   });
 

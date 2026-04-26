@@ -131,32 +131,79 @@ h1 {
   background-color: #0f172a;
 }
 
-/* Glassmorphism card for data */
+.phone-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 500px;
+  padding: 1.5rem;
+  margin: 0 auto;
+}
+
+@media (max-height: 600px) {
+  .phone-container {
+    padding: 0.5rem;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1rem;
+    max-width: 900px;
+  }
+  
+  .data-card {
+    margin-top: 0;
+    padding: 1rem;
+    max-width: 300px;
+  }
+  
+  h1 { font-size: 1.5rem; margin: 0; width: 100%; }
+}
+
 .data-card {
   background: rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(10px);
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 2rem;
-  width: 90%;
-  max-width: 400px;
-  margin-top: 2rem;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  padding: 1.5rem;
+  width: 100%;
+  margin-top: 1rem;
+  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.5);
 }
 
-.data-row {
-  display: flex;
-  justify-content: space-between;
+.btn-primary { background-color: #22c55e; }
+.btn-danger { background-color: #ef4444; }
+.btn-info { background-color: #3b82f6; }
+
+.title {
+  margin-top: 1rem;
   margin-bottom: 0.5rem;
-  font-family: monospace;
-  font-size: 1.1rem;
+  font-size: 1.8rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
 }
 
-.data-label {
-  color: #94a3b8;
+@media (max-width: 480px) {
+  .title { font-size: 1.5rem; }
+  .btn { padding: 0.8rem 1rem; font-size: 1rem; }
 }
 
-.data-value {
-  color: #3b82f6;
-  font-weight: bold;
+/* Fix for PC Graph position on mobile if somehow opened */
+.pc-overlay {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 10;
+  width: auto;
+  max-width: 300px;
+}
+
+@media (max-width: 768px) {
+  .pc-overlay {
+    top: auto;
+    bottom: 20px;
+    right: 20px;
+    left: 20px;
+    max-width: none;
+  }
 }

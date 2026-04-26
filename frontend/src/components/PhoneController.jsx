@@ -195,12 +195,27 @@ const PhoneController = ({ onBack }) => {
     
     setStatus('Precision Reset: All Axes at 0°');
   };
+  const [isTracking, setIsTracking] = useState(false);
+  const sensorRef = useRef(null);
 
-  const requestPermission = async () => {
+  const stopSensors = () => {
+    if (sensorRef.current) {
+      sensorRef.current.stop();
+      sensorRef.current = null;
+    }
+    window.removeEventListener('deviceorientation', handleOrientation);
+    window.removeEventListener('devicemotion', handleMotion);
+    setIsTracking(false);
+    setStatus('Sensors Stopped');
+  };
+
+  const startSensors = async () => {
+    setIsTracking(true);
     // 1. Try Modern Sensor API
     if (window.AbsoluteOrientationSensor) {
       try {
         const sensor = new AbsoluteOrientationSensor({ frequency: 60 });
+        sensorRef.current = sensor;
         sensor.addEventListener('error', (e) => {
           if (e.error.name === 'NotAllowedError') {
             setupLegacyListeners();
@@ -247,55 +262,44 @@ const PhoneController = ({ onBack }) => {
 
   useEffect(() => {
     return () => {
-      window.removeEventListener('deviceorientation', handleOrientation);
-      window.removeEventListener('devicemotion', handleMotion);
+      stopSensors();
     };
   }, []);
 
   return (
-    <div className="container" style={{ height: '100vh', justifyContent: 'flex-start', paddingTop: '4rem' }}>
+    <div className="phone-container">
       <button className="btn back-btn" onClick={onBack}>← Back</button>
-      <h2>Phone Controller</h2>
-
-      <div className={`status ${status.includes('Error') || status.includes('Denied') ? 'error' : 'success'}`}>
+      <h1 className="title">Phone Controller</h1>
+      
+      <div className={`status ${status.includes('Error') || status.includes('Denied') ? 'error' : 'success'}`} style={{ width: '100%' }}>
         Status: <strong>{status}</strong>
       </div>
 
-      <div style={{ display: 'flex', gap: '10px', width: '100%', marginBottom: '1rem' }}>
-        <button className="btn" onClick={requestPermission} style={{ flex: 1 }}>
-          Start Sensors
+      <div style={{ display: 'flex', gap: '10px', width: '100%', marginBottom: '1rem', flexWrap: 'wrap' }}>
+        <button 
+          className="btn" 
+          onClick={isTracking ? stopSensors : startSensors} 
+          style={{ flex: 1, minWidth: '140px', backgroundColor: isTracking ? '#ef4444' : '#22c55e' }}
+        >
+          {isTracking ? 'Stop Sensors' : 'Start Sensors'}
         </button>
-        <button className="btn" onClick={calibrate} style={{ flex: 1, backgroundColor: '#3b82f6' }}>
+        <button className="btn" onClick={calibrate} style={{ flex: 1, minWidth: '140px', backgroundColor: '#3b82f6' }}>
           Reset Heading
         </button>
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-around', width: '100%', padding: '15px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', marginBottom: '1rem', border: '1px solid rgba(255,255,255,0.1)' }}>
-        {['alpha', 'beta', 'gamma'].map(axis => (
-          <label key={axis} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#94a3b8', fontSize: '0.9rem', cursor: 'pointer' }}>
-            <input 
-              type="checkbox" 
-              checked={enabledAxes[axis]} 
-              onChange={() => setEnabledAxes(prev => ({ ...prev, [axis]: !prev[axis] }))}
-              style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-            />
-            {axis.charAt(0).toUpperCase() + axis.slice(1)}
-          </label>
-        ))}
-      </div>
-
       <div className="data-card">
-        <div className="data-row">
-          <span className="data-label">Alpha (Compass)</span>
-          <span className="data-value">{data.alpha.toFixed(1)}°</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+          <span style={{color: '#94a3b8'}}>Alpha</span>
+          <span style={{color: '#3b82f6', fontWeight: 'bold'}}>{data.alpha.toFixed(1)}°</span>
         </div>
-        <div className="data-row">
-          <span className="data-label">Beta (Tilt X)</span>
-          <span className="data-value">{data.beta.toFixed(1)}°</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+          <span style={{color: '#94a3b8'}}>Beta</span>
+          <span style={{color: '#3b82f6', fontWeight: 'bold'}}>{data.beta.toFixed(1)}°</span>
         </div>
-        <div className="data-row">
-          <span className="data-label">Gamma (Tilt Y)</span>
-          <span className="data-value">{data.gamma.toFixed(1)}°</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span style={{color: '#94a3b8'}}>Gamma</span>
+          <span style={{color: '#3b82f6', fontWeight: 'bold'}}>{data.gamma.toFixed(1)}°</span>
         </div>
       </div>
 
