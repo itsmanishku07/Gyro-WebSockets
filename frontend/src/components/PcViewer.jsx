@@ -15,21 +15,21 @@ const PhoneModel = ({ orientation }) => {
     if (orientation.quat) {
       // 100% Accurate Hardware Sync with Axis Correction
       const q = orientation.quat;
-      // Map hardware to Three.js world - Swapping Y and Z for correct phone orientation
+      // Map hardware (ENZ: East-North-Up) to Three.js world (Right-Up-Backward)
+      // ENZ: X=East, Y=North, Z=Up
+      // ThreeJS: X=Right, Y=Up, Z=Backward (South)
+      // So Three.js X = ENZ X, Three.js Y = ENZ Z, Three.js Z = -ENZ Y
       targetQuaternion.current.set(q.x, q.z, -q.y, q.w);
-      
-      const worldCorrection = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
-      targetQuaternion.current.premultiply(worldCorrection);
-      
+
       meshRef.current.quaternion.slerp(targetQuaternion.current, 15 * delta);
     } else {
-      // Smooth Euler Fallback with Swapped Axes
+      // Smooth Euler Fallback
       const alpha = THREE.MathUtils.degToRad(orientation.alpha || 0);
       const beta = THREE.MathUtils.degToRad(orientation.beta || 0);
       const gamma = THREE.MathUtils.degToRad(orientation.gamma || 0);
-      
-      // Using gamma for turning and alpha for rolling to match physical phone axes
-      targetEuler.current.set(beta, -gamma, -alpha, 'YXZ');
+
+      // X: pitch (beta), Y: heading (alpha), Z: roll (gamma)
+      targetEuler.current.set(beta, -alpha, -gamma, 'YXZ');
       targetQuaternion.current.setFromEuler(targetEuler.current);
       meshRef.current.quaternion.slerp(targetQuaternion.current, 15 * delta);
     }
@@ -64,15 +64,15 @@ const PcViewer = ({ onBack }) => {
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-    
+
     ws.onopen = () => {
       setStatus('Connected. Waiting for phone data...');
     };
-    
+
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        
+
         // Auto-lock onto the first device, but allow re-locking if the old device stops sending
         const now = Date.now();
         if (!lockedDeviceId.current || (now - lastMessageTime.current > 2000)) {
@@ -88,13 +88,13 @@ const PcViewer = ({ onBack }) => {
         console.error("Failed to parse WS data", e);
       }
     };
-    
+
     const lastMessageTime = { current: 0 };
 
     ws.onclose = () => {
       setStatus('Disconnected');
     };
-    
+
     ws.onerror = () => {
       setStatus('Connection Error');
     };
@@ -110,24 +110,24 @@ const PcViewer = ({ onBack }) => {
     <div className="viewer-container">
       <button className="btn back-btn" onClick={onBack} style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 20 }}>← Back</button>
       <SensorGraph data={orientation} />
-      
+
       <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 10, background: 'rgba(30,41,59,0.8)', backdropFilter: 'blur(10px)', padding: '15px', borderRadius: '12px', color: 'white', textAlign: 'left', border: '1px solid rgba(255,255,255,0.1)' }}>
-        <div style={{color: '#94a3b8', fontSize: '0.8rem', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '1px'}}>Status</div>
-        <div style={{marginBottom: '10px', color: status.includes('Error') ? '#ef4444' : '#22c55e'}}>{status}</div>
-        
-        <div style={{color: '#94a3b8', fontSize: '0.8rem', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '1px'}}>Orientation</div>
-        <div style={{fontFamily: 'monospace', fontSize: '1.1rem'}}>
+        <div style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '1px' }}>Status</div>
+        <div style={{ marginBottom: '10px', color: status.includes('Error') ? '#ef4444' : '#22c55e' }}>{status}</div>
+
+        <div style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '1px' }}>Orientation</div>
+        <div style={{ fontFamily: 'monospace', fontSize: '1.1rem' }}>
           {orientation.quat ? (
-            <div style={{fontSize: '0.9rem', color: '#3b82f6'}}>
-              Precision Mode: ON<br/>
-              X: {orientation.quat.x.toFixed(2)}<br/>
-              Y: {orientation.quat.y.toFixed(2)}<br/>
+            <div style={{ fontSize: '0.9rem', color: '#3b82f6' }}>
+              Precision Mode: ON<br />
+              X: {orientation.quat.x.toFixed(2)}<br />
+              Y: {orientation.quat.y.toFixed(2)}<br />
               Z: {orientation.quat.z.toFixed(2)}
             </div>
           ) : (
             <>
-              α: {(orientation.alpha || 0).toFixed(0)}°<br/>
-              β: {(orientation.beta || 0).toFixed(0)}°<br/>
+              α: {(orientation.alpha || 0).toFixed(0)}°<br />
+              β: {(orientation.beta || 0).toFixed(0)}°<br />
               γ: {(orientation.gamma || 0).toFixed(0)}°
             </>
           )}
@@ -136,15 +136,15 @@ const PcViewer = ({ onBack }) => {
 
       <Canvas camera={{ position: [0, 5, 8], fov: 50 }} shadows>
         <color attach="background" args={['#0f172a']} />
-        
+
         <ambientLight intensity={0.5} />
         <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={1} castShadow />
         <pointLight position={[-10, -10, -10]} intensity={0.5} />
-        
+
         <PhoneModel orientation={orientation} />
-        
+
         <ContactShadows position={[0, -2, 0]} opacity={0.5} scale={20} blur={2} far={4} />
-        <OrbitControls makeDefault />
+        <OrbitControls makeDefault enableRotate={false} enableZoom={false} enablePan={false} />
         <Environment preset="city" />
       </Canvas>
     </div>

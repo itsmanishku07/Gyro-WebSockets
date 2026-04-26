@@ -3,21 +3,27 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { Environment } from '@react-three/drei';
 import * as THREE from 'three';
 
-const LocalPhoneModel = ({ orientation }) => {
+const LocalPhoneModel = ({ orientation, quatOverride }) => {
   const meshRef = useRef();
+  const targetQ = useRef(new THREE.Quaternion());
 
-  useFrame(() => {
-    if (meshRef.current && orientation) {
-      const alpha = THREE.MathUtils.degToRad(orientation.alpha);
-      const beta = THREE.MathUtils.degToRad(orientation.beta);
-      const gamma = THREE.MathUtils.degToRad(orientation.gamma);
+  useFrame((state, delta) => {
+    if (!meshRef.current) return;
 
-      meshRef.current.rotation.set(0, 0, 0);
-      meshRef.current.rotation.order = 'YXZ';
-      meshRef.current.rotation.y = -alpha;
-      meshRef.current.rotation.x = beta;
-      meshRef.current.rotation.z = -gamma; 
+    if (quatOverride) {
+      // Mirror exactly what PcViewer does for quaternion path
+      const q = quatOverride;
+      targetQ.current.set(q.x, q.z, -q.y, q.w);
+    } else if (orientation) {
+      // Mirror exactly what PcViewer does for Euler path
+      const alpha = THREE.MathUtils.degToRad(orientation.alpha || 0);
+      const beta  = THREE.MathUtils.degToRad(orientation.beta  || 0);
+      const gamma = THREE.MathUtils.degToRad(orientation.gamma || 0);
+      const euler = new THREE.Euler(beta, -alpha, -gamma, 'YXZ');
+      targetQ.current.setFromEuler(euler);
     }
+
+    meshRef.current.quaternion.slerp(targetQ.current, 15 * delta);
   });
 
   return (
@@ -37,6 +43,7 @@ const LocalPhoneModel = ({ orientation }) => {
 const PhoneController = ({ onBack }) => {
   const [status, setStatus] = useState('Idle');
   const [data, setData] = useState({ alpha: 0, beta: 0, gamma: 0 });
+  const [quat, setQuat] = useState(null); // for AbsoluteOrientationSensor path
   const [offsets, setOffsets] = useState({ alpha: 0, beta: 0, gamma: 0 });
   const wsRef = useRef(null);
   const lastSendTime = useRef(0);
@@ -79,90 +86,70 @@ const PhoneController = ({ onBack }) => {
   }, []);
 
   const handleOrientation = (event) => {
-    if (event.alpha !== null || event.beta !== null || event.gamma !== null) {
-      // Store raw data for 100% accurate calibration
-      rawData.current = { 
-        alpha: event.alpha || 0, 
-        beta: event.beta || 0, 
-        gamma: event.gamma || 0 
-      };
+    if (event.alpha === null && event.beta === null && event.gamma === null) return;
 
-      // Apply per-axis offsets
-      let a = rawData.current.alpha - offsets.alpha;
-      let b = rawData.current.beta - offsets.beta;
-      let g = rawData.current.gamma - offsets.gamma;
+    // Store raw data for calibration
+    rawData.current = {
+      alpha: event.alpha || 0,
+      beta:  event.beta  || 0,
+      gamma: event.gamma || 0
+    };
 
-      // Wrap angles
-      const wrap = (val) => {
-        while (val < 0) val += 360;
-        while (val >= 360) val -= 360;
-        return val;
-      };
-      
-      a = wrap(a);
-      b = wrap(b);
-      g = wrap(g);
+    // Apply calibration offsets - wrap only alpha (compass, 0-360)
+    // beta/gamma are SIGNED angles (-180..180) — do NOT wrap to 0-360
+    const wrapAlpha = (val) => { while (val < 0) val += 360; while (val >= 360) val -= 360; return val; };
+    let a = wrapAlpha(rawData.current.alpha - offsets.alpha);
+    let b = rawData.current.beta  - offsets.beta;   // signed, no wrap
+    let g = rawData.current.gamma - offsets.gamma;  // signed, no wrap
 
-      if (!smoothedData.current.init) {
-        smoothedData.current = { alpha: a, beta: b, gamma: g, init: true };
-      } else {
-        const tiltSmooth = 0.15;
+    if (!smoothedData.current.init) {
+      smoothedData.current = { alpha: a, beta: b, gamma: g, init: true };
+    } else {
+      const tiltSmooth = 0.3; // faster tilt response for 1:1 feel
 
-        // ALPHA (Compass) - Increased speed (0.1) for better 1:1 "Heading" accuracy
-        if (enabledAxes.alpha) {
-          const alphaDiff = Math.abs(lerpAngle(smoothedData.current.alpha, a, 1) - smoothedData.current.alpha);
-          const alphaSmooth = alphaDiff > 0.2 ? 0.1 : 0; // Lower deadzone, faster response
-          smoothedData.current.alpha = wrap(lerpAngle(smoothedData.current.alpha, a, alphaSmooth));
-        }
-        
-        // BETA (Tilt X)
-        if (enabledAxes.beta) {
-          smoothedData.current.beta = wrap(lerpAngle(smoothedData.current.beta, b, tiltSmooth));
-        }
-
-        // GAMMA (Tilt Y)
-        if (enabledAxes.gamma) {
-          smoothedData.current.gamma = wrap(lerpAngle(smoothedData.current.gamma, g, tiltSmooth));
-        }
+      // ALPHA (Compass/Heading) — fast lerp so heading tracks in real-time
+      if (enabledAxes.alpha) {
+        smoothedData.current.alpha = wrapAlpha(lerpAngle(smoothedData.current.alpha, a, 0.4));
       }
 
-      const orientationData = {
-        alpha: smoothedData.current.alpha,
-        beta: smoothedData.current.beta,
-        gamma: smoothedData.current.gamma,
-        raw: `Ultra-Sync Active`
-      };
-      sendData(orientationData);
+      // BETA (forward/back tilt)
+      if (enabledAxes.beta) {
+        smoothedData.current.beta = lerpAngle(smoothedData.current.beta, b, tiltSmooth);
+      }
+
+      // GAMMA (left/right tilt)
+      if (enabledAxes.gamma) {
+        smoothedData.current.gamma = lerpAngle(smoothedData.current.gamma, g, tiltSmooth);
+      }
     }
+
+    const orientationData = {
+      alpha: smoothedData.current.alpha,
+      beta:  smoothedData.current.beta,
+      gamma: smoothedData.current.gamma,
+      raw: 'Euler Mode Active'
+    };
+    sendData(orientationData);
   };
 
+  // devicemotion is only used as a fallback when deviceorientation is unavailable
   const handleMotion = (event) => {
-    if (event.accelerationIncludingGravity && event.accelerationIncludingGravity.x !== null) {
-      const acc = event.accelerationIncludingGravity;
-      const b = Math.atan2(-acc.y, acc.z) * (180 / Math.PI);
-      const g = Math.atan2(acc.x, Math.sqrt(acc.y*acc.y + acc.z*acc.z)) * (180 / Math.PI);
-      
-      if (!smoothedData.current.init) {
-        smoothedData.current = { alpha: 0, beta: b, gamma: g, init: true };
-      } else {
-        const smooth = 0.05;
-        // Only update if enabled
-        if (enabledAxes.beta) {
-          smoothedData.current.beta = lerpAngle(smoothedData.current.beta, b, smooth);
-        }
-        if (enabledAxes.gamma) {
-          smoothedData.current.gamma = lerpAngle(smoothedData.current.gamma, g, smooth);
-        }
-      }
+    // Skip if deviceorientation is already providing data
+    if (smoothedData.current.init) return;
+    if (!event.accelerationIncludingGravity || event.accelerationIncludingGravity.x === null) return;
 
-      const orientationData = {
-        alpha: smoothedData.current.alpha, // Keep last known alpha
-        beta: smoothedData.current.beta,
-        gamma: smoothedData.current.gamma,
-        raw: `Motion Sync Active`
-      };
-      sendData(orientationData);
-    }
+    const acc = event.accelerationIncludingGravity;
+    const b = Math.atan2(-acc.y, acc.z) * (180 / Math.PI);
+    const g = Math.atan2(acc.x, Math.sqrt(acc.y * acc.y + acc.z * acc.z)) * (180 / Math.PI);
+
+    smoothedData.current = { alpha: 0, beta: b, gamma: g, init: true };
+
+    sendData({
+      alpha: 0,
+      beta: smoothedData.current.beta,
+      gamma: smoothedData.current.gamma,
+      raw: 'Motion Fallback Active'
+    });
   };
 
   const deviceId = useRef(Math.random().toString(36).substring(7));
@@ -211,36 +198,41 @@ const PhoneController = ({ onBack }) => {
 
   const startSensors = async () => {
     setIsTracking(true);
-    // 1. Try Modern Sensor API
+    // 1. Try Modern AbsoluteOrientationSensor API (most accurate)
     if (window.AbsoluteOrientationSensor) {
       try {
-        const sensor = new AbsoluteOrientationSensor({ frequency: 60 });
-        sensorRef.current = sensor;
-        sensor.addEventListener('error', (e) => {
-          if (e.error.name === 'NotAllowedError') {
+        const perms = await Promise.all([
+          navigator.permissions.query({ name: 'accelerometer' }),
+          navigator.permissions.query({ name: 'gyroscope' }),
+          navigator.permissions.query({ name: 'magnetometer' })
+        ]);
+        if (perms.every(p => p.state === 'granted' || p.state === 'prompt')) {
+          const sensor = new AbsoluteOrientationSensor({ frequency: 60, referenceFrame: 'device' });
+          sensorRef.current = sensor;
+          sensor.addEventListener('error', (e) => {
+            console.warn('AbsoluteOrientationSensor error, falling back:', e.error);
             setupLegacyListeners();
-          }
-        });
-        sensor.addEventListener('reading', () => {
-          const q = sensor.quaternion;
-          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({
-              quat: { x: q[0], y: q[1], z: q[2], w: q[3] },
-              deviceId: deviceId.current
-            }));
-          }
-          const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion(q[0], q[1], q[2], q[3]), 'YXZ');
-          setData({
-            alpha: THREE.MathUtils.radToDeg(euler.y),
-            beta: THREE.MathUtils.radToDeg(euler.x),
-            gamma: THREE.MathUtils.radToDeg(euler.z)
           });
-        });
-        sensor.start();
-        setStatus('Precision Mode: Active');
-        return;
+          sensor.addEventListener('reading', () => {
+            // sensor.quaternion = [x, y, z, w]
+            const [sx, sy, sz, sw] = sensor.quaternion;
+            const quatPayload = { x: sx, y: sy, z: sz, w: sw };
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              wsRef.current.send(JSON.stringify({
+                quat: quatPayload,
+                deviceId: deviceId.current
+              }));
+            }
+            // Update local preview using same quat so phone & PC previews match
+            setQuat(quatPayload);
+            setData(prev => ({ ...prev, raw: 'Precision Mode Active' }));
+          });
+          sensor.start();
+          setStatus('Precision Mode: Active');
+          return;
+        }
       } catch (e) {
-        console.warn("Sensor API failed, falling back", e);
+        console.warn('Sensor API failed, falling back:', e);
       }
     }
 
@@ -310,7 +302,7 @@ const PhoneController = ({ onBack }) => {
           <color attach="background" args={['#1e293b']} />
           <ambientLight intensity={0.5} />
           <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={1} />
-          <LocalPhoneModel orientation={data} />
+          <LocalPhoneModel orientation={quat ? null : data} quatOverride={quat} />
           <Environment preset="city" />
         </Canvas>
       </div>
