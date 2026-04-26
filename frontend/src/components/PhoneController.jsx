@@ -171,19 +171,27 @@ const PhoneController = ({ onBack }) => {
     }
   };
 
+  const calibrationQuat = useRef(new THREE.Quaternion());
+
   const calibrate = () => {
-    // USE RAW DATA for calibration to ensure 100% precision
+    // 1. For Euler path
     setOffsets({
       alpha: rawData.current.alpha,
       beta: rawData.current.beta,
       gamma: rawData.current.gamma
     });
-    
-    // Force smoothed data to snap to zero instantly
     smoothedData.current = { alpha: 0, beta: 0, gamma: 0, init: true };
+
+    // 2. For Quaternion path
+    if (quat) {
+      // Capture current quat and invert it to use as a 'Zeroing' factor
+      const currentQ = new THREE.Quaternion(quat.x, quat.y, quat.z, quat.w);
+      calibrationQuat.current.copy(currentQ).invert();
+    }
     
-    setStatus('Precision Reset: All Axes at 0°');
+    setStatus('Calibration: Current position is now 0°');
   };
+
   const [isTracking, setIsTracking] = useState(false);
   const sensorRef = useRef(null);
 
@@ -218,11 +226,15 @@ const PhoneController = ({ onBack }) => {
           sensor.addEventListener('reading', () => {
             // sensor.quaternion = [x, y, z, w]
             const [sx, sy, sz, sw] = sensor.quaternion;
-            const quatPayload = { x: sx, y: sy, z: sz, w: sw };
+            const rawQ = new THREE.Quaternion(sx, sy, sz, sw);
+            
+            // Apply calibration: calibrated = calibrationInv * raw
+            const relativeQ = new THREE.Quaternion().multiplyQuaternions(calibrationQuat.current, rawQ);
+            
+            const quatPayload = { x: relativeQ.x, y: relativeQ.y, z: relativeQ.z, w: relativeQ.w };
             
             // Calculate Euler angles for the UI readout
-            const tempQuat = new THREE.Quaternion(sx, sy, sz, sw);
-            const tempEuler = new THREE.Euler().setFromQuaternion(tempQuat, 'YXZ');
+            const tempEuler = new THREE.Euler().setFromQuaternion(relativeQ, 'YXZ');
             const a = THREE.MathUtils.radToDeg(tempEuler.y);
             const b = THREE.MathUtils.radToDeg(tempEuler.x);
             const g = THREE.MathUtils.radToDeg(tempEuler.z);
@@ -243,7 +255,7 @@ const PhoneController = ({ onBack }) => {
               alpha: a,
               beta: b,
               gamma: g,
-              raw: 'Precision Mode: Quaternion + Euler'
+              raw: 'Precision Mode: Calibrated'
             });
           });
           sensor.start();
