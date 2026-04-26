@@ -85,7 +85,7 @@ const LocalPhoneModel = ({ orientation, quatOverride, selectedModel }) => {
   );
 };
 
-const PhoneController = ({ onBack }) => {
+const PhoneController = ({ onBack, serverAddress, useSecure }) => {
   const [status, setStatus] = useState('Idle');
   const [data, setData] = useState({ alpha: 0, beta: 0, gamma: 0 });
   const [quat, setQuat] = useState(null);
@@ -107,8 +107,8 @@ const PhoneController = ({ onBack }) => {
   };
 
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    const protocol = useSecure ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${serverAddress}/ws`);
 
     ws.onopen = () => {
       setStatus('Connected to Server');
@@ -385,7 +385,7 @@ const PhoneController = ({ onBack }) => {
       <div 
         style={{ width: '100%', height: '300px', marginTop: '1rem', borderRadius: '16px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)', position: 'relative' }}
       >
-        <Canvas camera={{ position: [0, 5, 8], fov: 50 }}>
+        <Canvas camera={{ position: [0, 5, 8], fov: 50 }} shadows={{ type: THREE.PCFShadowMap }}>
           <color attach="background" args={['#1e293b']} />
           <ambientLight intensity={0.5} />
           <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={1} />

@@ -106,11 +106,13 @@ const PhoneModel = ({ orientation }) => {
   );
 };
 
-const PcViewer = ({ onBack }) => {
-  const [status, setStatus] = useState('Connecting...');
+const PcViewer = ({ onBack, serverAddress, useSecure }) => {
   const [selectedModel, setSelectedModel] = useState('phone');
   const [orientation, setOrientation] = useState({ alpha: 0, beta: 0, gamma: 0 });
+  const [status, setStatus] = useState('Disconnected');
+  const [deviceId, setDeviceId] = useState(null);
   const lockedDeviceId = useRef(null);
+  const lastMessageTime = useRef(0);
   
   const models = [
     { id: 'phone', name: 'Smartphone' },
@@ -120,8 +122,8 @@ const PcViewer = ({ onBack }) => {
   ];
 
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    const protocol = useSecure ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${serverAddress}/ws`);
 
     ws.onopen = () => {
       setStatus('Connected. Waiting for phone data...');
@@ -197,7 +199,7 @@ const PcViewer = ({ onBack }) => {
       </div>
 
       <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 0 }}>
-        <Canvas camera={{ position: [0, 5, 8], fov: 50 }} shadows>
+        <Canvas camera={{ position: [0, 5, 8], fov: 50 }} shadows={{ type: THREE.PCFShadowMap }}>
           <color attach="background" args={['#0f172a']} />
 
           <ambientLight intensity={0.5} />

@@ -4,6 +4,14 @@ from typing import List
 
 app = FastAPI()
 
+@app.get("/test")
+async def test_endpoint():
+    return {
+        "status": "online",
+        "message": "GyroSync Backend is running correctly!",
+        "connections": len(manager.active_connections)
+    }
+
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
